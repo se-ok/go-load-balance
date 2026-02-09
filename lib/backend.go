@@ -30,8 +30,14 @@ func NewBackend(urlStr string) (*Backend, error) {
 		healthy: true, // Start as healthy, health checker will update
 	}
 
-	// Mark backend unhealthy immediately on proxy error
+	// Mark backend unhealthy immediately on proxy error, but only if the
+	// error is from the backend (not the client dropping the connection).
 	b.proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		if r.Context().Err() != nil {
+			// Client cancelled — not the backend's fault
+			log.Printf("[PROXY] %s client disconnected: %v", u.String(), err)
+			return
+		}
 		log.Printf("[HEALTH] %s marked as unhealthy (proxy error: %v)", u.String(), err)
 		b.SetHealthy(false)
 		w.WriteHeader(http.StatusBadGateway)
