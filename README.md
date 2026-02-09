@@ -14,7 +14,17 @@ A simple, lightweight HTTP load balancer specifically designed for managing mult
 
 ## Installation
 
-Requires Go 1.21+.
+Requires Go 1.21+. If you don't have Go installed:
+
+```bash
+# Install Go without sudo (Linux amd64)
+# See https://go.dev/dl/ for other platforms and latest versions
+export GO_VERSION=1.23.6
+curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C ~/.local -xz
+export PATH=$HOME/.local/go/bin:$PATH
+```
+
+Build the load balancer:
 
 ```bash
 go build -o lb ./cmd/lb
