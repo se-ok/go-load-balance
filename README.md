@@ -21,13 +21,13 @@ Requires Go 1.21+. If you don't have Go installed:
 # See https://go.dev/dl/ for other platforms and latest versions
 export GO_VERSION=1.25.7
 curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C ~/.local -xz
-export PATH=$HOME/.local/go/bin:$PATH
+export PATH=$HOME/.local/go/bin:$HOME/go/bin:$PATH
 ```
 
-Build the load balancer:
+Install the load balancer:
 
 ```bash
-go build -o lb ./cmd/lb
+go install ./cmd/lb
 ```
 
 ## Usage
@@ -35,19 +35,19 @@ go build -o lb ./cmd/lb
 ### Basic Usage
 
 ```bash
-./lb --backends http://localhost:8000 --backends http://localhost:8001 --backends http://localhost:8002
+lb --backends http://localhost:8000 --backends http://localhost:8001 --backends http://localhost:8002
 ```
 
 ### Using Bash Expansion
 
 ```bash
-./lb --backends http://localhost:800{0..2}
+lb --backends http://localhost:800{0..2}
 ```
 
 ### Full Configuration
 
 ```bash
-./lb \
+lb \
   --backends http://localhost:8000 \
   --backends http://localhost:8001 \
   --backends http://localhost:8002 \
