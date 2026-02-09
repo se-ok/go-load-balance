@@ -25,6 +25,9 @@ func (sl *StatusLogger) Start(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
+	// Log initial status immediately
+	sl.logStatus()
+
 	for {
 		select {
 		case <-ctx.Done():
