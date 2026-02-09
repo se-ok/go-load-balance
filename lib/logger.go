@@ -8,21 +8,23 @@ import (
 
 // StatusLogger logs periodic status information
 type StatusLogger struct {
-	pool    *Pool
-	verbose bool
+	pool     *Pool
+	interval time.Duration
+	verbose  bool
 }
 
 // NewStatusLogger creates a new status logger
-func NewStatusLogger(pool *Pool, verbose bool) *StatusLogger {
+func NewStatusLogger(pool *Pool, interval time.Duration, verbose bool) *StatusLogger {
 	return &StatusLogger{
-		pool:    pool,
-		verbose: verbose,
+		pool:     pool,
+		interval: interval,
+		verbose:  verbose,
 	}
 }
 
 // Start begins periodic status logging in a background goroutine
 func (sl *StatusLogger) Start(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(sl.interval)
 	defer ticker.Stop()
 
 	// Log initial status immediately
