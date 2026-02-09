@@ -342,3 +342,46 @@ class TestLBHealthDegraded:
         r = requests.get(f"{LB_URL}/health", timeout=5)
         assert r.status_code == 503
         assert r.json()["status"] == "degraded"
+
+
+class TestPortFlag:
+    """Verify --port flag is respected."""
+
+    @classmethod
+    def setup_class(cls):
+        start_mock(8000, mode="healthy")
+        assert wait_for_port(8000)
+        start_lb(["http://localhost:8000"], port="9090", **{"health-check-interval": "1s"})
+        # Wait for LB on custom port
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            try:
+                requests.get("http://localhost:9090/health", timeout=1)
+                break
+            except requests.ConnectionError:
+                time.sleep(0.2)
+
+    def test_listens_on_custom_port(self):
+        r = requests.get("http://localhost:9090/health", timeout=5)
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
+
+
+class TestBackendsWithoutScheme:
+    """Verify backends without http:// scheme get it added automatically."""
+
+    @classmethod
+    def setup_class(cls):
+        start_mock(8000, mode="healthy")
+        assert wait_for_port(8000)
+        # Pass backend without http:// prefix
+        start_lb(["localhost:8000"], **{"health-check-interval": "1s"})
+        assert wait_for_lb()
+
+    def test_request_succeeds(self):
+        r = requests.post(
+            f"{LB_URL}/v1/completions",
+            json={"prompt": "test", "max_tokens": 10},
+            timeout=10,
+        )
+        assert r.status_code == 200
