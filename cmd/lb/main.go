@@ -99,7 +99,7 @@ func main() {
 			go healthChecker.Start(ctx)
 
 			// Start status logger
-			statusLogger := lib.NewStatusLogger(pool, verbose)
+			statusLogger := lib.NewStatusLogger(pool, healthCheckInterval, verbose)
 			go statusLogger.Start(ctx)
 
 			// Create mux with health endpoint

@@ -367,6 +367,44 @@ class TestPortFlag:
         assert r.json()["status"] == "ok"
 
 
+class TestHealthCheckInterval:
+    """Verify --health-check-interval applies to both health checker and status logger."""
+
+    @classmethod
+    def setup_class(cls):
+        start_mock(8000, mode="healthy")
+        cls.mock_8001 = start_mock(8001, mode="healthy")
+        assert wait_for_port(8000) and wait_for_port(8001)
+        # Use 500ms interval so recovery is fast
+        cls.lb = start_lb(
+            ["http://localhost:8000", "http://localhost:8001"],
+            **{"health-check-interval": "500ms"},
+        )
+        assert wait_for_lb()
+
+    def test_fast_recovery(self):
+        """Kill a backend and verify it's detected unhealthy within ~1s (not 30s)."""
+        r = requests.get(f"{LB_URL}/health", timeout=5)
+        assert r.json()["healthy_backends"] == 2
+
+        # Kill backend 8001
+        self.mock_8001.terminate()
+        self.mock_8001.wait()
+
+        # With 500ms interval, should be detected within ~1s
+        time.sleep(1.5)
+        r = requests.get(f"{LB_URL}/health", timeout=5)
+        assert r.json()["healthy_backends"] == 1
+
+        # Restart and verify fast recovery
+        start_mock(8001, mode="healthy")
+        assert wait_for_port(8001)
+
+        time.sleep(1.5)
+        r = requests.get(f"{LB_URL}/health", timeout=5)
+        assert r.json()["healthy_backends"] == 2
+
+
 class TestBackendsWithoutScheme:
     """Verify backends without http:// scheme get it added automatically."""
 
