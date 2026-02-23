@@ -135,8 +135,7 @@ test_stress.py     Stress test (asyncio + aiohttp)
 ## Design Choices
 
 - **No retry logic**: The load balancer does not retry failed requests. On backend error, the error is returned directly to the client. Clients are responsible for their own retry strategy.
-- **No request/response buffering**: Request and response bodies are streamed directly between client and backend, keeping memory usage minimal regardless of payload size.
-- **Mutex over atomics**: Active connection counters use `sync.Mutex` rather than atomic operations for clarity and to group with health status under the same lock.
+- **No request/response buffering**: Request and response bodies are sent directly between client and backend, keeping memory usage minimal regardless of payload size.
 
 ## Limitations
 
