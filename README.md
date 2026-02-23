@@ -9,10 +9,8 @@ A simple, lightweight HTTP load balancer specifically designed for managing mult
 - **Long Request Support**: Default 4-hour timeout for slow LLM generation
 - **CLI-First Configuration**: No config files needed, everything via command-line arguments
 - **Bash Expansion Support**: Space-separated backends enable shell expansion
-- **Transparent Proxying**: Streams requests and responses without buffering
-- **Streaming Ready**: Supports SSE and WebSocket upgrades out of the box
 
-## Installation
+## Build from Source
 
 Requires Go 1.21+. If you don't have Go installed:
 
@@ -35,7 +33,7 @@ go install ./cmd/lb
 ### Basic Usage
 
 ```bash
-lb --backends http://localhost:8000 --backends http://localhost:8001 --backends http://localhost:8002
+lb --backends http://localhost:8000 http://localhost:8001 http://localhost:8002
 ```
 
 ### Using Bash Expansion
@@ -48,9 +46,7 @@ lb --backends http://localhost:800{0..2}
 
 ```bash
 lb \
-  --backends http://localhost:8000 \
-  --backends http://localhost:8001 \
-  --backends http://localhost:8002 \
+  --backends http://localhost:8000 http://localhost:8001 http://localhost:8002 \
   --port 8080 \
   --timeout 4h \
   --health-check-interval 30s \
