@@ -24,11 +24,24 @@ func NewStatusLogger(pool *Pool, interval time.Duration, verbose bool) *StatusLo
 
 // Start begins periodic status logging in a background goroutine
 func (sl *StatusLogger) Start(ctx context.Context) {
+	// Delay the first status log so the initial health check can complete.
+	initialDelay := sl.interval
+	if initialDelay > 5*time.Second {
+		initialDelay = 5 * time.Second
+	}
+
+	initialTimer := time.NewTimer(initialDelay)
+	defer initialTimer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-initialTimer.C:
+		sl.logStatus()
+	}
+
 	ticker := time.NewTicker(sl.interval)
 	defer ticker.Stop()
-
-	// Log initial status immediately
-	sl.logStatus()
 
 	for {
 		select {
