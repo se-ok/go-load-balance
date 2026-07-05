@@ -18,8 +18,12 @@ streaming requests are the norm — the default request timeout is 4 hours.
 - **Selection**: "random two-least" — pick 2 random healthy backends, route to the one
   with fewer active connections. Cheap and avoids herding on one idle backend.
 - **Health = active probes + passive signals.** The checker GETs `/v1/models` every
-  interval (default 30s, hardcoded 5s probe timeout); the proxy also marks a backend
-  unhealthy on transport errors and proxied **5xx** responses.
+  interval (default 30s, minimum 5s — enforced in `cmd/lb`); the proxy also marks a
+  backend unhealthy on transport errors and proxied **5xx** responses. The probe
+  timeout is `min(10s, max(4.5s, interval − 0.5s))`: tracking the interval keeps
+  short-interval sweeps on cadence, the 10s cap keeps hang detection fast at long
+  intervals. The integration tests run at the 5s minimum; recovery waits there must
+  cover two sweeps (hysteresis).
 - **4xx (including 429) never affect health.** They are the client's or rate limiter's
   business; ejecting a 429-ing backend shifts load and can cascade 429s across the pool.
 - **Fail fast, recover slow.** One failure marks a backend unhealthy immediately, but
@@ -34,6 +38,12 @@ streaming requests are the norm — the default request timeout is 4 hours.
   `r.Context().Err()` and skips marking unhealthy when the client disconnected.
 - **Health probes run concurrently** (one goroutine per backend per sweep). Sequential
   probing let a few timing-out backends push a sweep past the check interval.
+- **Idle connections to backends are discarded after 3s** (`backendIdleConnTimeout`,
+  shared by the proxies and the health checker). vLLM's OpenAI server hardcodes
+  uvicorn's server-side keep-alive at 5s; reusing a connection the server is
+  concurrently closing causes spurious EOF/reset proxy errors that eject healthy
+  backends. The client side of a hop must always time out idle connections before
+  the server side does.
 - Backends start healthy; the status logger delays its first line so the initial
   health sweep can complete first.
 

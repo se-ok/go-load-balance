@@ -133,7 +133,7 @@ def start_scenario(mock_configs: list[dict], lb_kwargs: dict | None = None):
             assert wait_for_port(cfg["port"]), f"Mock on port {cfg['port']} not ready"
 
     backends = [f"http://localhost:{cfg['port']}" for cfg in mock_configs]
-    kw = {"health-check-interval": "1s", **(lb_kwargs or {})}
+    kw = {"health-check-interval": "5s", **(lb_kwargs or {})}
     start_lb(backends, **kw)
     assert wait_for_lb(), "LB not ready"
 
@@ -241,7 +241,7 @@ class TestHealthRecovery:
         start_mock(8002, mode="healthy")
         assert wait_for_port(8000) and wait_for_port(8001) and wait_for_port(8002)
 
-        start_lb(BACKEND_URLS, **{"health-check-interval": "1s"})
+        start_lb(BACKEND_URLS, **{"health-check-interval": "5s"})
         assert wait_for_lb()
 
     def test_recovery(self):
@@ -254,8 +254,8 @@ class TestHealthRecovery:
         self.mock_8001.terminate()
         self.mock_8001.wait()
 
-        # Wait for health check to detect
-        time.sleep(3)
+        # Wait for a health sweep to detect (5s interval)
+        time.sleep(7)
 
         ports = [r.json()["backend_port"] for r in completions(20)]
         assert 8001 not in ports, "Requests still going to killed backend"
@@ -265,8 +265,8 @@ class TestHealthRecovery:
         start_mock(8001, mode="healthy")
         assert wait_for_port(8001)
 
-        # Wait for health check to recover
-        time.sleep(3)
+        # Recovery needs 2 consecutive passing checks (hysteresis): up to 2 sweeps
+        time.sleep(12)
 
         ports = {r.json()["backend_port"] for r in completions(30)}
         assert ports == {8000, 8001, 8002}, f"Expected all 3 after recovery, got {ports}"
@@ -279,7 +279,7 @@ class TestTimeout:
     def setup_class(cls):
         start_mock(8000, mode="timeout")
         time.sleep(0.5)
-        start_lb(["http://localhost:8000"], timeout="2s", **{"health-check-interval": "1s"})
+        start_lb(["http://localhost:8000"], timeout="2s", **{"health-check-interval": "5s"})
         assert wait_for_lb(), "LB not ready"
 
     def test_does_not_hang(self):
@@ -334,7 +334,7 @@ class TestLBHealthDegraded:
     def setup_class(cls):
         start_mock(8000, mode="failing")
         time.sleep(0.5)
-        start_lb(["http://localhost:8000"], **{"health-check-interval": "1s"})
+        start_lb(["http://localhost:8000"], **{"health-check-interval": "5s"})
         assert wait_for_lb()
         time.sleep(2)
 
@@ -351,7 +351,7 @@ class TestPortFlag:
     def setup_class(cls):
         start_mock(8000, mode="healthy")
         assert wait_for_port(8000)
-        start_lb(["http://localhost:8000"], port="9090", **{"health-check-interval": "1s"})
+        start_lb(["http://localhost:8000"], port="9090", **{"health-check-interval": "5s"})
         # Wait for LB on custom port
         deadline = time.time() + 10
         while time.time() < deadline:
@@ -375,15 +375,15 @@ class TestHealthCheckInterval:
         start_mock(8000, mode="healthy")
         cls.mock_8001 = start_mock(8001, mode="healthy")
         assert wait_for_port(8000) and wait_for_port(8001)
-        # Use 500ms interval so recovery is fast
+        # Minimum allowed interval, so detection is fast (vs the 30s default)
         cls.lb = start_lb(
             ["http://localhost:8000", "http://localhost:8001"],
-            **{"health-check-interval": "500ms"},
+            **{"health-check-interval": "5s"},
         )
         assert wait_for_lb()
 
     def test_fast_recovery(self):
-        """Kill a backend and verify it's detected unhealthy within ~1s (not 30s)."""
+        """Kill a backend and verify it's detected unhealthy within ~5s (not 30s)."""
         r = requests.get(f"{LB_URL}/health", timeout=5)
         assert r.json()["healthy_backends"] == 2
 
@@ -391,18 +391,36 @@ class TestHealthCheckInterval:
         self.mock_8001.terminate()
         self.mock_8001.wait()
 
-        # With 500ms interval, should be detected within ~1s
-        time.sleep(1.5)
+        # With 5s interval, should be detected within one sweep
+        time.sleep(7)
         r = requests.get(f"{LB_URL}/health", timeout=5)
         assert r.json()["healthy_backends"] == 1
 
-        # Restart and verify fast recovery
+        # Restart; recovery needs 2 consecutive passing checks (hysteresis)
         start_mock(8001, mode="healthy")
         assert wait_for_port(8001)
 
-        time.sleep(1.5)
+        time.sleep(12)
         r = requests.get(f"{LB_URL}/health", timeout=5)
         assert r.json()["healthy_backends"] == 2
+
+
+class TestIntervalValidation:
+    """LB refuses to start with health-check-interval below 5s."""
+
+    def test_rejects_short_interval(self):
+        p = subprocess.Popen(
+            [str(LB_BIN), "--backends", "http://localhost:8000",
+             "--health-check-interval", "1s"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True,
+        )
+        PROCS.append(p)
+        try:
+            rc = p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pytest.fail("LB did not exit for too-short health-check-interval")
+        assert rc != 0
+        assert b"health-check-interval" in p.stderr.read()
 
 
 class TestBackendsWithoutScheme:
@@ -413,7 +431,7 @@ class TestBackendsWithoutScheme:
         start_mock(8000, mode="healthy")
         assert wait_for_port(8000)
         # Pass backend without http:// prefix
-        start_lb(["localhost:8000"], **{"health-check-interval": "1s"})
+        start_lb(["localhost:8000"], **{"health-check-interval": "5s"})
         assert wait_for_lb()
 
     def test_request_succeeds(self):

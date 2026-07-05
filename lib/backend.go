@@ -6,6 +6,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"sync"
+	"time"
 )
 
 // healthyThreshold is the number of consecutive successful health checks
@@ -13,6 +14,20 @@ import (
 // slowly (while failing fast) prevents a backend whose health endpoint
 // responds but whose real requests fail from flapping in and out of the pool.
 const healthyThreshold = 2
+
+// backendIdleConnTimeout must stay below the backends' server-side keep-alive
+// timeout (vLLM's OpenAI server hardcodes uvicorn's TIMEOUT_KEEP_ALIVE at 5s).
+// Reusing a connection the server is concurrently closing surfaces as spurious
+// EOF/reset proxy errors — ejecting healthy backends — or, on unlucky
+// interleavings, a protocol-level 400 from uvicorn's HTTP parser.
+const backendIdleConnTimeout = 3 * time.Second
+
+// backendTransport is shared by all backend proxies.
+var backendTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.IdleConnTimeout = backendIdleConnTimeout
+	return t
+}()
 
 // Backend represents a single backend server
 type Backend struct {
@@ -37,6 +52,7 @@ func NewBackend(urlStr string) (*Backend, error) {
 		proxy:   httputil.NewSingleHostReverseProxy(u),
 		healthy: true, // Start as healthy, health checker will update
 	}
+	b.proxy.Transport = backendTransport
 
 	// Mark backend unhealthy immediately on proxy error, but only if the
 	// error is from the backend (not the client dropping the connection).

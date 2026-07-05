@@ -17,11 +17,17 @@ type HealthChecker struct {
 
 // NewHealthChecker creates a new health checker
 func NewHealthChecker(pool *Pool, interval time.Duration) *HealthChecker {
+	// Probe timeout: generous enough that a busy backend's slow /v1/models
+	// response is not mistaken for an outage, but always finishing before the
+	// next sweep is due, so short check intervals keep their cadence.
+	// cmd/lb enforces interval >= 5s; the 4.5s floor covers direct lib users.
+	timeout := min(10*time.Second, max(4500*time.Millisecond, interval-500*time.Millisecond))
 	return &HealthChecker{
 		pool:     pool,
 		interval: interval,
 		client: &http.Client{
-			Timeout: 5 * time.Second, // Short timeout for health checks
+			Timeout:   timeout,
+			Transport: backendTransport,
 		},
 	}
 }

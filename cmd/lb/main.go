@@ -73,6 +73,10 @@ func main() {
 				return fmt.Errorf("timeout cannot be negative")
 			}
 
+			if healthCheckInterval < 5*time.Second {
+				return fmt.Errorf("health-check-interval must be at least 5s, got %v", healthCheckInterval)
+			}
+
 			// Print startup configuration
 			log.Printf("Starting go-load-balance")
 			log.Printf("Port: %d", port)

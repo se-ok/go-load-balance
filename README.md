@@ -16,9 +16,9 @@ Prebuilt binaries for Linux and macOS (amd64/arm64) are on the
 [releases page](https://github.com/se-ok/go-load-balance/releases):
 
 ```bash
-# Example: v0.1.2 on Linux amd64 — installs to ~/.local/bin (make sure it is on your $PATH)
+# Example: v0.1.3 on Linux amd64 — installs to ~/.local/bin (make sure it is on your $PATH)
 mkdir -p ~/.local/bin
-curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.1.2/lb_0.1.2_linux_amd64.tar.gz | tar -xz -C ~/.local/bin lb
+curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.1.3/lb_0.1.3_linux_amd64.tar.gz | tar -xz -C ~/.local/bin lb
 lb --help
 ```
 
@@ -72,7 +72,7 @@ lb \
 | `--backends` | Backend URL (required, repeat for multiple) | - |
 | `--port` | Port to listen on | `8080` |
 | `--timeout` | Request timeout duration | `4h` |
-| `--health-check-interval` | Health check interval | `30s` |
+| `--health-check-interval` | Health check interval (minimum `5s`) | `30s` |
 | `--verbose` | Enable verbose logging with per-backend details | `false` |
 
 ## How It Works
