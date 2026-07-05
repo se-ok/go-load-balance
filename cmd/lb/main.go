@@ -16,10 +16,14 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// version is stamped by goreleaser via -ldflags "-X main.version=..."
+var version = "dev"
+
 func main() {
 	app := &cli.Command{
 		Name:      "lb",
 		Usage:     "A simple load balancer",
+		Version:   version,
 		UsageText: "lb --backends <url1> [--backends <url2> ...] [--port <port>] [--timeout <duration>] [--health-check-interval <duration>] [--verbose]",
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{

@@ -73,3 +73,12 @@ GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
 uploads tar.gz archives plus checksums; the changelog is generated from
 commits since the previous tag. When bumping the version, update the install
 example in `README.md` to the new tag.
+
+The version string reported by `lb --version` (and the `VERSION:` section of
+the help text) is never edited by hand: `var version = "dev"` in
+`cmd/lb/main.go` is stamped at build time by the
+`-X main.version={{ .Version }}` ldflag in `.goreleaser.yaml`, which takes the
+version from the git tag being released. Plain `go build` binaries therefore
+report `dev` — only goreleaser-built artifacts carry a real version. To verify
+locally without tagging: `goreleaser build --snapshot --clean --single-target`,
+then run the binary under `dist/` with `--version`.
