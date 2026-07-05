@@ -80,7 +80,7 @@ lb \
 1. **Load Balancing**: For each request, the load balancer randomly selects 2 healthy backends and routes to the one with fewer active connections
 2. **Health Checks**: Every 30 seconds (configurable), the load balancer checks all backends' `/v1/models` endpoints concurrently
 3. **Fail Fast, Recover Slow**: A backend is marked unhealthy on the first failed health check, proxy error, or proxied 5xx response; 4xx responses (including 429) are passed through without affecting health. An unhealthy backend rejoins the pool after 2 consecutive successful health checks. Health transitions are logged exactly once
-4. **Status Logging**: Every 30 seconds, logs total active connections, healthy backend count, and per-backend connection counts sorted in decreasing order (with more than 30 backends, only the first and last 15 are shown):
+4. **Status Logging**: Every 30 seconds, logs total active connections, healthy backend count, and each healthy backend's connection count sorted in decreasing order (with more than 30 backends, only the first and last 15 are shown):
    ```
    [STATUS] Active: 12 | Healthy: 3/3 | Conns/node: [5, 4, 3]
    ```

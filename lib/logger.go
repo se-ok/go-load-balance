@@ -53,13 +53,15 @@ func (sl *StatusLogger) Start(ctx context.Context) {
 	}
 }
 
-// connsSummary formats per-backend active connection counts sorted in
-// decreasing order, e.g. "[60, 50, 45, 0]". With more than 30 backends the
-// middle is elided, keeping the first and last 15.
+// connsSummary formats the active connection counts of healthy backends,
+// sorted in decreasing order, e.g. "[60, 50, 45, 0]". With more than 30
+// backends the middle is elided, keeping the first and last 15.
 func connsSummary(backends []*Backend) string {
-	conns := make([]int, len(backends))
-	for i, b := range backends {
-		conns[i] = b.GetActiveConns()
+	conns := make([]int, 0, len(backends))
+	for _, b := range backends {
+		if b.IsHealthy() {
+			conns = append(conns, b.GetActiveConns())
+		}
 	}
 	slices.SortFunc(conns, func(a, b int) int { return b - a })
 
