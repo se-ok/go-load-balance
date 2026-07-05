@@ -12,7 +12,7 @@ A simple, lightweight HTTP load balancer specifically designed for managing mult
 
 ## Build from Source
 
-Requires Go 1.21+. If you don't have Go installed:
+Requires Go 1.25+. If you don't have Go installed:
 
 ```bash
 # Install Go without sudo (Linux amd64)
@@ -66,10 +66,14 @@ lb \
 ## How It Works
 
 1. **Load Balancing**: For each request, the load balancer randomly selects 2 healthy backends and routes to the one with fewer active connections
-2. **Health Checks**: Every 30 seconds (configurable), the load balancer checks each backend's `/v1/models` endpoint
-3. **Status Logging**: Every 30 seconds, logs current active connections and healthy backend count
-4. **Transparent Proxying**: Uses Go's `httputil.ReverseProxy` to stream requests/responses without buffering
-5. **No Healthy Backends**: When all backends are down, proxied requests return 502 Bad Gateway
+2. **Health Checks**: Every 30 seconds (configurable), the load balancer checks all backends' `/v1/models` endpoints concurrently
+3. **Fail Fast, Recover Slow**: A backend is marked unhealthy on the first failed health check, proxy error, or proxied 5xx response; 4xx responses (including 429) are passed through without affecting health. An unhealthy backend rejoins the pool after 2 consecutive successful health checks. Health transitions are logged exactly once
+4. **Status Logging**: Every 30 seconds, logs total active connections, healthy backend count, and per-backend connection counts sorted in decreasing order (with more than 30 backends, only the first and last 15 are shown):
+   ```
+   [STATUS] Active: 12 | Healthy: 3/3 | Conns/node: [5, 4, 3]
+   ```
+5. **Transparent Proxying**: Uses Go's `httputil.ReverseProxy` to stream requests/responses without buffering
+6. **No Healthy Backends**: When all backends are down, proxied requests return 502 Bad Gateway
 
 ## Architecture
 

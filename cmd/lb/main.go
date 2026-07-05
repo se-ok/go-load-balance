@@ -95,7 +95,7 @@ func main() {
 			defer cancel()
 
 			// Start health checker
-			healthChecker := lib.NewHealthChecker(pool, healthCheckInterval, timeout)
+			healthChecker := lib.NewHealthChecker(pool, healthCheckInterval)
 			go healthChecker.Start(ctx)
 
 			// Start status logger
@@ -106,7 +106,7 @@ func main() {
 			mux := http.NewServeMux()
 			mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 				totalActive, healthyCount, totalCount := pool.GetStatus()
-				status := map[string]interface{}{
+				status := map[string]any{
 					"status":           "ok",
 					"healthy_backends": healthyCount,
 					"total_backends":   totalCount,

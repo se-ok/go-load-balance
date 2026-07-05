@@ -102,9 +102,9 @@ func (h *BackendHandler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Return mock /v1/models response
-	response := map[string]interface{}{
+	response := map[string]any{
 		"object": "list",
-		"data": []map[string]interface{}{
+		"data": []map[string]any{
 			{
 				"id":       "mock-model",
 				"object":   "model",
@@ -154,12 +154,12 @@ func (h *BackendHandler) handleCompletions(w http.ResponseWriter, r *http.Reques
 	// Generate response of randomized size
 	responseText := generateText(int(float64(h.config.ResponseSize) * randomFactor()))
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"id":      fmt.Sprintf("cmpl-%d", time.Now().Unix()),
 		"object":  "text_completion",
 		"created": time.Now().Unix(),
 		"model":   "mock-model",
-		"choices": []map[string]interface{}{
+		"choices": []map[string]any{
 			{
 				"text":          responseText,
 				"index":         0,
@@ -200,7 +200,7 @@ func (h *BackendHandler) handleDefault(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"message":      "Mock backend server",
 		"port":         h.config.Port,
 		"path":         r.URL.Path,
