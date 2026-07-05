@@ -48,3 +48,18 @@ streaming requests are the norm — the default request timeout is 4 hours.
 - Go 1.25, single external dependency (`urfave/cli/v3`). Verify with
   `go build ./... && go vet ./...`; exercise behavior via `cmd/mock-backend`.
 - Use `any`, not `interface{}`.
+
+## Releasing
+
+Releases are published to GitHub with goreleaser, run locally (no CI). From a
+clean, up-to-date `main`:
+
+```bash
+git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
+GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
+```
+
+`.goreleaser.yaml` builds the `lb` binary for linux/darwin × amd64/arm64 and
+uploads tar.gz archives plus checksums; the changelog is generated from
+commits since the previous tag. When bumping the version, update the install
+example in `README.md` to the new tag.

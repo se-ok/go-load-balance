@@ -10,6 +10,17 @@ A simple, lightweight HTTP load balancer specifically designed for managing mult
 - **CLI-First Configuration**: No config files needed, everything via command-line arguments
 - **Bash Expansion Support**: Space-separated backends enable shell expansion
 
+## Install
+
+Prebuilt binaries for Linux and macOS (amd64/arm64) are on the
+[releases page](https://github.com/se-ok/go-load-balance/releases):
+
+```bash
+# Example: v0.1.2 on Linux amd64
+curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.1.2/lb_0.1.2_linux_amd64.tar.gz | tar -xz
+./lb --help
+```
+
 ## Build from Source
 
 Requires Go 1.25+. If you don't have Go installed:
