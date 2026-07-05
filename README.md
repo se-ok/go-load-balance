@@ -16,9 +16,10 @@ Prebuilt binaries for Linux and macOS (amd64/arm64) are on the
 [releases page](https://github.com/se-ok/go-load-balance/releases):
 
 ```bash
-# Example: v0.1.2 on Linux amd64
-curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.1.2/lb_0.1.2_linux_amd64.tar.gz | tar -xz
-./lb --help
+# Example: v0.1.2 on Linux amd64 — installs to ~/.local/bin (make sure it is on your $PATH)
+mkdir -p ~/.local/bin
+curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.1.2/lb_0.1.2_linux_amd64.tar.gz | tar -xz -C ~/.local/bin lb
+lb --help
 ```
 
 ## Build from Source
