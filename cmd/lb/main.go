@@ -82,7 +82,7 @@ func main() {
 			}
 
 			// Print startup configuration
-			log.Printf("Starting go-load-balance")
+			log.Printf("Starting go-load-balance %s", version)
 			log.Printf("Port: %d", port)
 			log.Printf("Timeout: %v", timeout)
 			log.Printf("Health check interval: %v", healthCheckInterval)
