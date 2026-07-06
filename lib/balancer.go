@@ -2,6 +2,7 @@ package lib
 
 import (
 	"errors"
+	"math"
 	"math/rand"
 	"net/http"
 	"sync"
@@ -33,46 +34,38 @@ func NewPool(backendURLs []string) (*Pool, error) {
 	}, nil
 }
 
-// SelectBackend selects a backend using the random two-least algorithm
+// SelectBackend selects the healthy backend with the fewest active
+// connections, breaking ties randomly, and reserves a connection slot on it
+// before returning. Selection and increment happen under the pool lock, so
+// concurrent selections each see the previous pick's slot and a simultaneous
+// burst distributes within ±1 instead of herding onto one idle backend.
+// The caller must release the slot with DecrementConns when done.
 func (p *Pool) SelectBackend() (*Backend, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	// Get list of healthy backends
-	healthy := make([]*Backend, 0, len(p.backends))
+	minConns := math.MaxInt
+	var least []*Backend
 	for _, b := range p.backends {
-		if b.IsHealthy() {
-			healthy = append(healthy, b)
+		if !b.IsHealthy() {
+			continue
+		}
+		switch c := b.GetActiveConns(); {
+		case c < minConns:
+			minConns = c
+			least = append(least[:0], b)
+		case c == minConns:
+			least = append(least, b)
 		}
 	}
 
-	// No healthy backends
-	if len(healthy) == 0 {
+	if len(least) == 0 {
 		return nil, errors.New("no healthy backends available")
 	}
 
-	// Single healthy backend
-	if len(healthy) == 1 {
-		return healthy[0], nil
-	}
-
-	// Random two-least: pick 2 random backends, return one with fewer active connections
-	idx1 := rand.Intn(len(healthy))
-	idx2 := rand.Intn(len(healthy))
-
-	// Ensure idx2 is different from idx1
-	for idx2 == idx1 {
-		idx2 = rand.Intn(len(healthy))
-	}
-
-	backend1 := healthy[idx1]
-	backend2 := healthy[idx2]
-
-	// Return backend with fewer active connections
-	if backend1.GetActiveConns() <= backend2.GetActiveConns() {
-		return backend1, nil
-	}
-	return backend2, nil
+	backend := least[rand.Intn(len(least))]
+	backend.IncrementConns()
+	return backend, nil
 }
 
 // ServeHTTP implements http.Handler interface
@@ -83,8 +76,7 @@ func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Track active connections
-	backend.IncrementConns()
+	// Connection slot was reserved by SelectBackend
 	defer backend.DecrementConns()
 
 	// Proxy the request

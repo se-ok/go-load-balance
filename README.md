@@ -4,7 +4,7 @@ A simple, lightweight HTTP load balancer specifically designed for managing mult
 
 ## Features
 
-- **Random Two-Least Load Balancing**: Selects 2 random backends and routes to the one with fewer active connections
+- **Least-Connections Load Balancing**: Routes to the healthy backend with the fewest active connections, breaking ties randomly
 - **Health Checks**: Periodic health monitoring via `/v1/models` endpoint with transition logging
 - **Long Request Support**: Default 4-hour timeout for slow LLM generation
 - **CLI-First Configuration**: No config files needed, everything via command-line arguments
@@ -16,9 +16,9 @@ Prebuilt binaries for Linux and macOS (amd64/arm64) are on the
 [releases page](https://github.com/se-ok/go-load-balance/releases):
 
 ```bash
-# Example: v0.1.3 on Linux amd64 — installs to ~/.local/bin (make sure it is on your $PATH)
+# Example: v0.1.4 on Linux amd64 — installs to ~/.local/bin (make sure it is on your $PATH)
 mkdir -p ~/.local/bin
-curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.1.3/lb_0.1.3_linux_amd64.tar.gz | tar -xz -C ~/.local/bin lb
+curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.1.4/lb_0.1.4_linux_amd64.tar.gz | tar -xz -C ~/.local/bin lb
 lb --help
 ```
 
@@ -77,7 +77,7 @@ lb \
 
 ## How It Works
 
-1. **Load Balancing**: For each request, the load balancer randomly selects 2 healthy backends and routes to the one with fewer active connections
+1. **Load Balancing**: Each request goes to the healthy backend with the fewest active connections (ties broken randomly); the count is updated at selection time, so concurrent bursts spread evenly
 2. **Health Checks**: Every 30 seconds (configurable), the load balancer checks all backends' `/v1/models` endpoints concurrently
 3. **Fail Fast, Recover Slow**: A backend is marked unhealthy on the first failed health check, proxy error, or proxied 5xx response; 4xx responses (including 429) are passed through without affecting health. An unhealthy backend rejoins the pool after 2 consecutive successful health checks. Health transitions are logged exactly once
 4. **Status Logging**: Every 30 seconds, logs total active connections, healthy backend count, and each healthy backend's connection count sorted in decreasing order (with more than 30 backends, only the first and last 15 are shown):
@@ -97,7 +97,7 @@ lb \
        ▼
 ┌──────────────────────────────────────┐
 │   Go Load Balancer                   │
-│   - Random Two-Least Selector        │
+│   - Least-Connections Selector       │
 │   - Health Checker (30s)             │
 │   - httputil.ReverseProxy            │
 └──────┬───────────────────────────────┘

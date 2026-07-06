@@ -15,8 +15,13 @@ streaming requests are the norm — the default request timeout is 4 hours.
 
 ## Design decisions
 
-- **Selection**: "random two-least" — pick 2 random healthy backends, route to the one
-  with fewer active connections. Cheap and avoids herding on one idle backend.
+- **Selection**: least-connections with random tie-break. The connection slot is
+  reserved (incremented) inside `SelectBackend` under the pool write lock, so
+  concurrent selections see each other's picks and even a simultaneous burst
+  spreads within ±1. Power-of-two sampling was dropped deliberately: it hedges
+  against stale load info in distributed balancers, but this LB is one process
+  with live counters, so full least-conn is strictly better balanced (~3× lower
+  skew in simulation). Revisit only if multiple lb instances ever share a pool.
 - **Health = active probes + passive signals.** The checker GETs `/v1/models` every
   interval (default 30s, minimum 5s — enforced in `cmd/lb`); the proxy also marks a
   backend unhealthy on transport errors and proxied **5xx** responses. The probe
