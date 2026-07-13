@@ -91,6 +91,14 @@ def completions(n: int) -> list[requests.Response]:
         return results
 
 
+def chat(messages: list[dict]) -> requests.Response:
+    return requests.post(
+        f"{LB_URL}/v1/chat/completions",
+        json={"messages": messages, "max_tokens": 10},
+        timeout=15,
+    )
+
+
 def cleanup():
     for p in PROCS:
         try:
@@ -441,3 +449,177 @@ class TestBackendsWithoutScheme:
             timeout=10,
         )
         assert r.status_code == 200
+
+
+# --- Cache-aware routing (--routing cache-aware) ---
+
+
+CA_KWARGS = {"routing": "cache-aware", "max-conns": "10"}
+
+
+def session_rounds(i: int) -> list[list[dict]]:
+    """Three progressive requests of one conversation, unique per session."""
+    u1 = {"role": "user", "content": f"task-{i} " + "x" * 3000}
+    a1 = {"role": "assistant", "content": f"answer-{i} " + "y" * 1000}
+    u2 = {"role": "user", "content": f"followup-{i} " + "z" * 1000}
+    a2 = {"role": "assistant", "content": f"answer2-{i} " + "w" * 1000}
+    u3 = {"role": "user", "content": f"final-{i} " + "v" * 1000}
+    return [[u1], [u1, a1, u2], [u1, a1, u2, a2, u3]]
+
+
+class TestCacheAwareStickiness:
+    """Same conversation (and shared prefixes) route to the same backend."""
+
+    @classmethod
+    def setup_class(cls):
+        start_scenario([
+            {"port": 8000, "mode": "healthy"},
+            {"port": 8001, "mode": "healthy"},
+            {"port": 8002, "mode": "healthy"},
+        ], lb_kwargs=CA_KWARGS)
+
+    def test_conversation_sticks(self):
+        msgs = [{"role": "user", "content": "stick " + "s" * 500}]
+        home = chat(msgs).json()["backend_port"]
+        for turn in range(4):
+            msgs.append({"role": "assistant", "content": f"a{turn}"})
+            msgs.append({"role": "user", "content": f"u{turn}"})
+            r = chat(msgs)
+            assert r.status_code == 200
+            assert r.json()["backend_port"] == home, f"turn {turn} left home backend"
+
+    def test_shared_first_turn_joins_warm_backend(self):
+        first = [{"role": "user", "content": "shared-first-turn " + "q" * 500}]
+        home = chat(first).json()["backend_port"]
+        # A different session starting with the identical first turn should
+        # join the backend where that prefix is already cached.
+        diverged = first + [{"role": "assistant", "content": "A"},
+                            {"role": "user", "content": "different continuation"}]
+        assert chat(diverged).json()["backend_port"] == home
+
+    def test_prompt_string_sticks(self):
+        body = {"prompt": "raw prompt affinity " + "p" * 500, "max_tokens": 10}
+        ports = {requests.post(f"{LB_URL}/v1/completions", json=body, timeout=10)
+                 .json()["backend_port"] for _ in range(4)}
+        assert len(ports) == 1, f"same prompt hit multiple backends: {ports}"
+
+
+class TestCacheAwarePrefixReuse:
+    """Cache-aware routing yields materially higher simulated prefix-cache
+    hit ratios than least-conn on multi-turn session traffic."""
+
+    def _run_traffic(self, lb_kwargs) -> float:
+        start_scenario([
+            {"port": 8000, "mode": "healthy"},
+            {"port": 8001, "mode": "healthy"},
+            {"port": 8002, "mode": "healthy"},
+        ], lb_kwargs=lb_kwargs)
+        try:
+            sessions = [session_rounds(i) for i in range(9)]
+            for round_idx in range(3):
+                for s in sessions:
+                    assert chat(s[round_idx]).status_code == 200
+            matched = total = 0
+            for port in (8000, 8001, 8002):
+                stats = requests.get(f"http://localhost:{port}/prefixstats", timeout=5).json()
+                matched += stats["matched_chars"]
+                total += stats["total_chars"]
+            return matched / total
+        finally:
+            cleanup()
+
+    def test_higher_prefix_reuse_than_least_conn(self):
+        ca_ratio = self._run_traffic(CA_KWARGS)
+        lc_ratio = self._run_traffic(None)
+        logger.info(f"prefix reuse: cache-aware={ca_ratio:.2f} least-conn={lc_ratio:.2f}")
+        assert ca_ratio > 0.4, f"cache-aware reuse unexpectedly low: {ca_ratio:.2f}"
+        assert ca_ratio > lc_ratio + 0.1, (
+            f"cache-aware ({ca_ratio:.2f}) not better than least-conn ({lc_ratio:.2f})"
+        )
+
+
+class TestCacheAwareMaxConns:
+    """--max-conns is a hard per-backend cap: overflow requests get a
+    provider-style 429 rate-limit rejection (a 4xx, so an upstream lb in a
+    two-tier deployment passes it through without marking this node unhealthy)."""
+
+    @classmethod
+    def setup_class(cls):
+        start_scenario([
+            {"port": 8000, "mode": "healthy", "delay": "3s"},
+            {"port": 8001, "mode": "healthy", "delay": "3s"},
+        ], lb_kwargs={"routing": "cache-aware", "max-conns": "2"})
+
+    def test_hard_limit_rejects_excess(self):
+        # Capacity is 2 backends x 2 conns = 4; the 5th concurrent request
+        # must be rejected immediately with 429.
+        results = completions(5)
+        codes = sorted(r.status_code for r in results)
+        assert codes == [200, 200, 200, 200, 429], f"got {codes}"
+        rejected = next(r for r in results if r.status_code == 429)
+        assert rejected.json()["error"]["type"] == "rate_limit_error"
+        assert rejected.headers.get("Retry-After") == "1"
+
+
+class TestCacheAwareFailover:
+    """A pinned backend dying re-places its conversations on healthy ones."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.mocks = {}
+        for port in (8000, 8001, 8002):
+            cls.mocks[port] = start_mock(port, mode="healthy")
+            assert wait_for_port(port)
+        start_lb(BACKEND_URLS, **{"health-check-interval": "5s", **CA_KWARGS})
+        assert wait_for_lb()
+
+    def test_failover_re_places_conversation(self):
+        msgs = [{"role": "user", "content": "failover " + "f" * 500}]
+        home = chat(msgs).json()["backend_port"]
+
+        self.mocks[home].terminate()
+        self.mocks[home].wait()
+
+        # First request after the kill hits the dead backend (502) and marks
+        # it unhealthy; the next one re-places on a healthy backend.
+        first = chat(msgs)
+        assert first.status_code == 502
+        second = chat(msgs)
+        assert second.status_code == 200
+        assert second.json()["backend_port"] != home
+
+
+class TestCacheAwareTTL:
+    """--affinity-ttl plumbs through: routing stays correct after expiry."""
+
+    @classmethod
+    def setup_class(cls):
+        start_scenario([
+            {"port": 8000, "mode": "healthy"},
+            {"port": 8001, "mode": "healthy"},
+        ], lb_kwargs={**CA_KWARGS, "affinity-ttl": "2s"})
+
+    def test_still_routes_after_expiry(self):
+        msgs = [{"role": "user", "content": "ttl " + "t" * 500}]
+        assert chat(msgs).status_code == 200
+        time.sleep(3)  # let the entry expire
+        r = chat(msgs)
+        assert r.status_code == 200  # re-placed cold, no error
+
+
+class TestCacheAwareValidation:
+    """cache-aware routing requires --max-conns > 0."""
+
+    def test_rejects_missing_max_conns(self):
+        p = subprocess.Popen(
+            [str(LB_BIN), "--backends", "http://localhost:8000",
+             "--routing", "cache-aware"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True,
+        )
+        PROCS.append(p)
+        try:
+            rc = p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pytest.fail("LB did not exit for cache-aware without --max-conns")
+        assert rc != 0
+        assert b"max-conns" in p.stderr.read()
