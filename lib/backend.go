@@ -38,6 +38,10 @@ type Backend struct {
 	activeConns int
 	// consecutive successful health checks since the last failure
 	successStreak int
+	// epoch increments on every healthy->unhealthy transition; cache-aware
+	// routing stores it in affinity entries so a backend that went down (and
+	// possibly relaunched at the same URL) invalidates its old pins at once.
+	epoch uint64
 }
 
 // NewBackend creates a new Backend instance
@@ -98,7 +102,17 @@ func (b *Backend) MarkUnhealthy() bool {
 	wasHealthy := b.healthy
 	b.healthy = false
 	b.successStreak = 0
+	if wasHealthy {
+		b.epoch++
+	}
 	return wasHealthy
+}
+
+// Epoch returns the backend's current health epoch.
+func (b *Backend) Epoch() uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.epoch
 }
 
 // RecordCheckSuccess records a successful health check. An unhealthy backend

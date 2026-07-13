@@ -24,7 +24,7 @@ func main() {
 		Name:      "lb",
 		Usage:     "A simple load balancer",
 		Version:   version,
-		UsageText: "lb --backends <url1> [--backends <url2> ...] [--port <port>] [--timeout <duration>] [--health-check-interval <duration>] [--verbose]",
+		UsageText: "lb --backends <url1> [--backends <url2> ...] [--port <port>] [--timeout <duration>] [--health-check-interval <duration>] [--routing <mode>] [--max-conns <n>] [--affinity-ttl <duration>] [--verbose]",
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{
 				Name:     "backends",
@@ -46,6 +46,21 @@ func main() {
 				Usage: "Health check interval (e.g. 500ms, 30s, 5m, 2h, 1h30m)",
 				Value: 30 * time.Second,
 			},
+			&cli.StringFlag{
+				Name:  "routing",
+				Usage: "Routing mode: least-conn or cache-aware (prefix-affinity routing for KV cache reuse)",
+				Value: "least-conn",
+			},
+			&cli.IntFlag{
+				Name:  "max-conns",
+				Usage: "Hard limit on concurrent requests per backend, 0 = unlimited (required > 0 for cache-aware routing)",
+				Value: 0,
+			},
+			&cli.DurationFlag{
+				Name:  "affinity-ttl",
+				Usage: "Cache-aware routing: sliding lifetime of prefix-affinity entries",
+				Value: time.Hour,
+			},
 			&cli.BoolFlag{
 				Name:  "verbose",
 				Usage: "Enable verbose logging",
@@ -60,6 +75,9 @@ func main() {
 			port := cmd.Int("port")
 			timeout := cmd.Duration("timeout")
 			healthCheckInterval := cmd.Duration("health-check-interval")
+			routing := cmd.String("routing")
+			maxConns := cmd.Int("max-conns")
+			affinityTTL := cmd.Duration("affinity-ttl")
 			verbose := cmd.Bool("verbose")
 
 			// Add http:// to backends without a scheme
@@ -81,11 +99,35 @@ func main() {
 				return fmt.Errorf("health-check-interval must be at least 5s, got %v", healthCheckInterval)
 			}
 
+			if routing != "least-conn" && routing != "cache-aware" {
+				return fmt.Errorf("routing must be least-conn or cache-aware, got %q", routing)
+			}
+
+			if maxConns < 0 {
+				return fmt.Errorf("max-conns cannot be negative")
+			}
+
+			if routing == "cache-aware" {
+				if maxConns == 0 {
+					return fmt.Errorf("cache-aware routing requires --max-conns > 0 (its load guard and cache retention are scaled by it)")
+				}
+				if affinityTTL <= 0 {
+					return fmt.Errorf("affinity-ttl must be positive, got %v", affinityTTL)
+				}
+			}
+
 			// Print startup configuration
 			log.Printf("Starting go-load-balance %s", version)
 			log.Printf("Port: %d", port)
 			log.Printf("Timeout: %v", timeout)
 			log.Printf("Health check interval: %v", healthCheckInterval)
+			log.Printf("Routing: %s", routing)
+			if maxConns > 0 {
+				log.Printf("Max conns per backend: %d", maxConns)
+			}
+			if routing == "cache-aware" {
+				log.Printf("Affinity TTL: %v", affinityTTL)
+			}
 			log.Printf("Verbose: %v", verbose)
 			log.Printf("Backends:")
 			for _, backend := range backends {
@@ -96,6 +138,11 @@ func main() {
 			pool, err := lib.NewPool(backends)
 			if err != nil {
 				log.Fatalf("Failed to create backend pool: %v", err)
+			}
+			if routing == "cache-aware" {
+				pool.EnableCacheAware(affinityTTL, int(maxConns))
+			} else if maxConns > 0 {
+				pool.SetMaxConns(int(maxConns))
 			}
 
 			// Create context for graceful shutdown

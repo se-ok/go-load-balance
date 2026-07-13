@@ -9,6 +9,7 @@ streaming requests are the norm — the default request timeout is 4 hours.
 - `cmd/mock-backend/` — test backend with modes: healthy, slow, failing, flaky, timeout
 - `lib/backend.go` — `Backend`: reverse proxy wrapper, health state, active-connection count
 - `lib/balancer.go` — `Pool`: backend collection, selection, `ServeHTTP`
+- `lib/cacheaware.go` — `--routing cache-aware`: prefix-affinity routing (chain hashing, sticky table, load guard)
 - `lib/healthcheck.go` — periodic active health probing
 - `lib/logger.go` — periodic `[STATUS]` summary logging
 - `test.py`, `test_stress.py` — Python integration tests (no Go tests); `.goreleaser.yaml` for releases
@@ -31,6 +32,9 @@ streaming requests are the norm — the default request timeout is 4 hours.
   cover two sweeps (hysteresis).
 - **4xx (including 429) never affect health.** They are the client's or rate limiter's
   business; ejecting a 429-ing backend shifts load and can cascade 429s across the pool.
+  This extends to active probes: a 429 answer to the health check counts as a *passing*
+  probe (saturated ≠ down — in two-tier deployments a full node lb answers probes with
+  429), while any other non-2xx probe status marks the backend unhealthy.
 - **Fail fast, recover slow.** One failure marks a backend unhealthy immediately, but
   recovery requires `healthyThreshold` (2) consecutive passing health checks. This is
   hysteresis against flapping: an LLM server whose `/v1/models` responds while real
@@ -51,6 +55,34 @@ streaming requests are the norm — the default request timeout is 4 hours.
   the server side does.
 - Backends start healthy; the status logger delays its first line so the initial
   health sweep can complete first.
+- **Cache-aware routing = chunked-turn chained hashing, not a radix trie.** The
+  request's message stream is canonicalized (role + reasoning/reasoning_content +
+  content + tool_calls per turn; turns > 8k chars split into 8k blocks; frozen at 500
+  units) and hashed into a cumulative chain — equal hash proves the whole prefix
+  matches, so the routing state is a flat `hash → backend` map with no text retention
+  and no structural invariants (eviction can degrade routing but never corrupt it).
+  Deepest table hit wins; cold keys place by least-conn; **pin-follows-reality** (all
+  hashes re-point to whichever backend actually served the request, so hot shared
+  prefixes replicate under load instead of thrashing one node). A trie would only add
+  sub-block precision — deliberately rejected; the per-node router handles fine-grained
+  matching one tier below.
+- **Affinity must expire like the KV cache it mirrors.** Entries have a sliding TTL
+  (`--affinity-ttl`, default 1h) and per-backend retention of 5×`--max-conns` recent
+  requests; a healthy→unhealthy transition bumps `Backend.epoch`, instantly
+  invalidating all pins to it (a relaunched endpoint on the same URL inherits nothing).
+- **The load guard is scaled by `--max-conns`** (required for cache-aware): overflow
+  to least-conn when the pinned backend is at the cap or leads the least-loaded one by
+  > 0.2×cap. In both modes `--max-conns` is a hard admission limit, never a queue.
+- **At-capacity is 429, outage is 503.** All healthy backends at the cap → OpenAI-style
+  429 `rate_limit_error` with `Retry-After: 1`; zero healthy backends → 503. The
+  distinction is load-bearing for two-tier (node lb + cluster lb) deployments: 429 is
+  4xx, so a saturated node is *not* ejected by the cluster tier, while a node whose
+  ranks are all down 503s and is. Do not collapse these into one status.
+- **Two-tier stacking is supported and documented in the README**: align caps as
+  cluster `--max-conns` = node `--max-conns` × ranks. A single rank 5xx propagating up
+  and ejecting the whole node at the cluster tier is intended (expert parallelism
+  couples the ranks); the weak cluster-through-node health probe (proves only one rank
+  alive) is accepted and compensated by a short node-level check interval.
 
 ## Known gaps (deliberate, not yet addressed)
 
@@ -61,7 +93,12 @@ streaming requests are the norm — the default request timeout is 4 hours.
 ## Conventions
 
 - Go 1.25, single external dependency (`urfave/cli/v3`). Verify with
-  `go build ./... && go vet ./...`; exercise behavior via `cmd/mock-backend`.
+  `go build ./... && go vet ./... && go test ./...`; exercise end-to-end behavior via
+  `cmd/mock-backend` and the Python suite (`test.py`).
+- Go unit tests live next to the code (`lib/*_test.go`) and cover pure logic (chain
+  derivation, table TTL/retention, selection); routing behavior over real HTTP is
+  covered in `test.py`. `cmd/mock-backend` simulates a prefix KV cache and exposes
+  `/prefixstats` so tests can compare reuse ratios between routing modes.
 - Use `any`, not `interface{}`.
 
 ## Releasing

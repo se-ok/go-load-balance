@@ -84,8 +84,12 @@ func (sl *StatusLogger) logStatus() {
 	totalActive, healthyCount, totalCount := sl.pool.GetStatus()
 
 	// Always log summary
-	log.Printf("[STATUS] Active: %d | Healthy: %d/%d | Conns/node: %s",
-		totalActive, healthyCount, totalCount, connsSummary(sl.pool.GetBackends()))
+	affinitySuffix := ""
+	if sl.pool.affinity != nil {
+		affinitySuffix = " | " + sl.pool.affinityStatsLine()
+	}
+	log.Printf("[STATUS] Active: %d | Healthy: %d/%d | Conns/node: %s%s",
+		totalActive, healthyCount, totalCount, connsSummary(sl.pool.GetBackends()), affinitySuffix)
 
 	// Log per-backend breakdown if verbose
 	if sl.verbose {

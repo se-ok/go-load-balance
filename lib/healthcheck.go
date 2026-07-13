@@ -76,8 +76,10 @@ func (hc *HealthChecker) checkBackend(backend *Backend) {
 	}
 	defer resp.Body.Close()
 
-	// Check if response is 2xx
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	// 2xx passes; so does 429 — a saturated backend (e.g. a node-level lb
+	// whose ranks are all at --max-conns) is alive, and ejecting it would
+	// shift load onto the rest and cascade. Anything else is unhealthy.
+	if (resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == http.StatusTooManyRequests {
 		if backend.RecordCheckSuccess() {
 			log.Printf("[HEALTH] %s marked as healthy", backend.URL.String())
 		}

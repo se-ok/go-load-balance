@@ -73,6 +73,9 @@ lb \
 | `--port` | Port to listen on | `8080` |
 | `--timeout` | Request timeout duration | `4h` |
 | `--health-check-interval` | Health check interval (minimum `5s`) | `30s` |
+| `--routing` | Routing mode: `least-conn` or `cache-aware` | `least-conn` |
+| `--max-conns` | Hard limit on concurrent requests per backend, `0` = unlimited (required for `cache-aware`) | `0` |
+| `--affinity-ttl` | Cache-aware: sliding lifetime of prefix-affinity entries | `1h` |
 | `--verbose` | Enable verbose logging with per-backend details | `false` |
 
 ## How It Works
@@ -85,7 +88,67 @@ lb \
    [STATUS] Active: 12 | Healthy: 3/3 | Conns/node: [5, 4, 3]
    ```
 5. **Transparent Proxying**: Uses Go's `httputil.ReverseProxy` to stream requests/responses without buffering
-6. **No Healthy Backends**: When all backends are down, proxied requests return 502 Bad Gateway
+6. **No Healthy Backends**: When all backends are down, proxied requests return 503 Service Unavailable; when all healthy backends are at `--max-conns`, requests return a provider-style 429 rate-limit error instead (backpressure, not an outage)
+
+## Cache-Aware Routing
+
+`--routing cache-aware --max-conns <n>` routes requests that share a prefix (the same
+conversation growing turn by turn, sessions starting from an identical harness prompt,
+same-document queries) to the same backend, so a backend's prefix KV cache actually
+gets reused instead of being re-prefilled across the pool. Designed for fronting
+multiple LLM nodes that each run their own rank-level router.
+
+How it works, briefly:
+
+- The request body is canonicalized (per chat message: role, reasoning /
+  reasoning_content, content, tool_calls — a turn with only tool calls still counts)
+  and hashed into a cumulative **chain**: one hash per turn, turns over 8k chars split
+  into 8k blocks, frozen at 500 units. Equal chain hash ⟺ byte-identical prefix.
+- A sticky table maps chain hashes → backend. A request follows its **longest matching
+  prefix**; unknown prefixes are placed by least-connections; every request re-points
+  its hashes to the backend that actually served it.
+- Affinity never overrides load for long: a pinned backend at `--max-conns`, or ahead
+  of the least-loaded one by more than 20% of `--max-conns`, overflows to
+  least-connections (hot prefixes replicate onto other backends naturally).
+- Entries expire after `--affinity-ttl` idle (matching backend KV eviction), the table
+  retains at most 5×`--max-conns` recent requests per backend, and a backend that goes
+  unhealthy invalidates all of its entries at once.
+- Keys are derived from request content only — no custom headers required. The
+  standard OpenAI `user` field, when present, overrides content-derived keys.
+
+The `[STATUS]` line gains routing counters:
+`... | Affinity: warm 82% cold 15% ovfl 3% (120 reqs, 5731 keys)`.
+
+In both routing modes, `--max-conns > 0` is a hard admission limit: when every healthy
+backend is at the cap, requests are rejected immediately — never queued — with an
+OpenAI-style 429 (`rate_limit_error`, `Retry-After: 1`).
+
+### Two-Tier Deployment
+
+`lb` can be stacked: one instance per node routing between GPU ranks, one cluster
+instance routing between the node instances:
+
+```bash
+# node level (per node, fronting 8 vLLM data-parallel ranks)
+lb --backends 127.0.0.1:3003{0..7} --routing cache-aware \
+   --max-conns 5 --health-check-interval 5s --port 30040
+
+# cluster level (fronting the node instances)
+lb --backends node{01..60}:30040 --routing cache-aware --max-conns 40
+```
+
+Rules of thumb:
+
+- **Align the caps**: cluster `--max-conns` = node `--max-conns` × ranks per node
+  (5 × 8 = 40 above), so the cluster never admits more than a node can hold. At-capacity
+  429s from a node pass through the cluster tier as 4xx without affecting its health.
+- **A single rank failure ejects the whole node — by design.** A rank's 5xx propagates
+  through the node instance to the cluster instance, which marks the node unhealthy.
+  Under expert parallelism the ranks share collectives, so one broken rank compromises
+  all of them; stopping traffic to the node is the correct response.
+- Use a short node-level `--health-check-interval` (the 5s minimum): the cluster's
+  probe through a node instance only proves one rank is alive, so fast rank-level
+  probing at the node tier is what actually detects partial failures.
 
 ## Architecture
 
