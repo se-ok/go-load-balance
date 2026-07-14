@@ -1,0 +1,27 @@
+# Scan reachable code paths against the Go vulnerability database.
+# Runs on PRs and pushes to main, plus weekly: new CVEs are published
+# independently of commits, and the weekly run catches those. A failure on an
+# unrelated PR usually means a new stdlib CVE — the fix is bumping the go
+# directive in go.mod to the latest patch release, not reverting the PR.
+name: govulncheck
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 2 * * 1" # Mondays 02:00 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+      - run: govulncheck ./...

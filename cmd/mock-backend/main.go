@@ -180,7 +180,7 @@ func (h *BackendHandler) handlePrefixStats(w http.ResponseWriter, r *http.Reques
 		ratio = float64(matched) / float64(total)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"requests":      requests,
 		"matched_chars": matched,
 		"total_chars":   total,
@@ -198,7 +198,7 @@ func (h *BackendHandler) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "flaky":
-		if rand.Float64() < h.config.FailureRate {
+		if rand.Float64() < h.config.FailureRate { // #nosec G404 -- simulated flakiness in test backend
 			log.Printf("[%d] Health check: FLAKY (failing)", h.config.Port)
 			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 			return
@@ -228,12 +228,12 @@ func (h *BackendHandler) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleCompletions handles completion requests
 func (h *BackendHandler) handleCompletions(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[%d] %s %s from %s", h.config.Port, r.Method, r.URL.Path, r.RemoteAddr)
+	log.Printf("[%d] %q %q from %s", h.config.Port, r.Method, r.URL.Path, r.RemoteAddr) // #nosec G706 -- %q escapes control characters; analyzer does not model it
 
 	body, _ := io.ReadAll(r.Body)
 	matched, total := h.prefix.observe(body)
@@ -251,7 +251,7 @@ func (h *BackendHandler) handleCompletions(w http.ResponseWriter, r *http.Reques
 		return
 
 	case "flaky":
-		if rand.Float64() < h.config.FailureRate {
+		if rand.Float64() < h.config.FailureRate { // #nosec G404 -- simulated flakiness in test backend
 			log.Printf("[%d] Completions: FLAKY (failing)", h.config.Port)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
@@ -294,12 +294,12 @@ func (h *BackendHandler) handleCompletions(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleDefault handles all other requests
 func (h *BackendHandler) handleDefault(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[%d] %s %s from %s", h.config.Port, r.Method, r.URL.Path, r.RemoteAddr)
+	log.Printf("[%d] %q %q from %s", h.config.Port, r.Method, r.URL.Path, r.RemoteAddr) // #nosec G706 -- %q escapes control characters; analyzer does not model it
 
 	// Determine response based on mode
 	switch h.config.Mode {
@@ -308,7 +308,7 @@ func (h *BackendHandler) handleDefault(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "flaky":
-		if rand.Float64() < h.config.FailureRate {
+		if rand.Float64() < h.config.FailureRate { // #nosec G404 -- simulated flakiness in test backend
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
@@ -327,12 +327,12 @@ func (h *BackendHandler) handleDefault(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // randomFactor returns a random multiplier in [0.5, 2.0].
 func randomFactor() float64 {
-	return 0.5 + rand.Float64()*1.5
+	return 0.5 + rand.Float64()*1.5 // #nosec G404 -- delay jitter in test backend
 }
 
 // generateText generates text of approximately the specified size
@@ -340,7 +340,7 @@ func generateText(size int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
 	result := make([]byte, size)
 	for i := range result {
-		result[i] = chars[rand.Intn(len(chars))]
+		result[i] = chars[rand.Intn(len(chars))] // #nosec G404 -- filler text in test backend
 	}
 	return string(result)
 }

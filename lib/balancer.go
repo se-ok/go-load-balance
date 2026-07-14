@@ -23,7 +23,7 @@ func writeSelectError(w http.ResponseWriter, err error) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "1")
 		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"error":{"message":"Rate limit reached: all backends at max concurrent requests, please retry later.","type":"rate_limit_error","code":"rate_limit_exceeded"}}`))
+		_, _ = w.Write([]byte(`{"error":{"message":"Rate limit reached: all backends at max concurrent requests, please retry later.","type":"rate_limit_error","code":"rate_limit_exceeded"}}`))
 		return
 	}
 	http.Error(w, "Service Unavailable: "+err.Error(), http.StatusServiceUnavailable)
@@ -102,7 +102,7 @@ func (p *Pool) leastConnLocked() (*Backend, int, error) {
 		return nil, -1, errNoHealthyBackends
 	}
 
-	k := rand.Intn(len(least))
+	k := rand.Intn(len(least)) // #nosec G404 -- tie-break among equally loaded backends, not security-sensitive
 	return least[k], leastIdx[k], nil
 }
 
