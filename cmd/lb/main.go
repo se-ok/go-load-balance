@@ -172,7 +172,7 @@ func main() {
 					w.WriteHeader(http.StatusServiceUnavailable)
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(status)
+				_ = json.NewEncoder(w).Encode(status)
 			})
 			mux.Handle("/", pool)
 
@@ -185,7 +185,7 @@ func main() {
 			}
 
 			// Handle graceful shutdown
-			go func() {
+			go func() { // #nosec G118 -- shutdown must outlive the action context to drain in-flight requests
 				sigChan := make(chan os.Signal, 1)
 				signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 				<-sigChan
