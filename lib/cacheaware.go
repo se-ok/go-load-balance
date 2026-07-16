@@ -283,8 +283,10 @@ func (a *affinityState) upsertLocked(chain [][16]byte, idx int, epoch uint64, no
 // serveCacheAware buffers the request body (bounded), derives the affinity
 // chain, selects a backend, and proxies. The buffered body also enables
 // r.GetBody, letting the transport transparently retry a request that failed
-// on a reused connection.
-func (p *Pool) serveCacheAware(w http.ResponseWriter, r *http.Request) {
+// on a reused connection. rec is the request-log capture (nil when --log-to
+// is off); reading the body here goes through its tee, so the capture stays
+// complete even though the proxy later reads the buffered copy.
+func (p *Pool) serveCacheAware(w http.ResponseWriter, r *http.Request, rec *reqLogCapture) {
 	var chain [][16]byte
 	if r.Body != nil && r.Body != http.NoBody {
 		r.Body = http.MaxBytesReader(w, r.Body, affinityMaxBody)
@@ -311,6 +313,7 @@ func (p *Pool) serveCacheAware(w http.ResponseWriter, r *http.Request) {
 		writeSelectError(w, err)
 		return
 	}
+	rec.setBackend(backend)
 	defer backend.DecrementConns()
 
 	backend.GetProxy().ServeHTTP(w, r)

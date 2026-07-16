@@ -39,6 +39,14 @@ type Pool struct {
 	maxConns int
 	// affinity is non-nil in cache-aware routing mode (see cacheaware.go)
 	affinity *affinityState
+	// reqlog is non-nil when --log-to is set (see reqlog.go)
+	reqlog *RequestLog
+}
+
+// SetRequestLog enables request/response pair logging (--log-to).
+// Call before serving traffic.
+func (p *Pool) SetRequestLog(l *RequestLog) {
+	p.reqlog = l
 }
 
 // SetMaxConns sets the per-backend concurrent request cap (0 = unlimited).
@@ -126,8 +134,14 @@ func (p *Pool) SelectBackend() (*Backend, error) {
 
 // ServeHTTP implements http.Handler interface
 func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var rec *reqLogCapture
+	if p.reqlog != nil {
+		rec, w = p.reqlog.begin(w, r)
+		defer rec.finish()
+	}
+
 	if p.affinity != nil {
-		p.serveCacheAware(w, r)
+		p.serveCacheAware(w, r, rec)
 		return
 	}
 
@@ -136,6 +150,7 @@ func (p *Pool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeSelectError(w, err)
 		return
 	}
+	rec.setBackend(backend)
 
 	// Connection slot was reserved by SelectBackend
 	defer backend.DecrementConns()

@@ -10,6 +10,7 @@ streaming requests are the norm — the default request timeout is 4 hours.
 - `lib/backend.go` — `Backend`: reverse proxy wrapper, health state, active-connection count
 - `lib/balancer.go` — `Pool`: backend collection, selection, `ServeHTTP`
 - `lib/cacheaware.go` — `--routing cache-aware`: prefix-affinity routing (chain hashing, sticky table, load guard)
+- `lib/reqlog.go` — `--log-to`: JSONL request/response pair logging (tee'd capture, never buffers the proxy path)
 - `lib/healthcheck.go` — periodic active health probing
 - `lib/logger.go` — periodic `[STATUS]` summary logging
 - `test.py`, `test_stress.py` — Python integration tests (no Go tests); `.goreleaser.yaml` for releases
@@ -78,6 +79,14 @@ streaming requests are the norm — the default request timeout is 4 hours.
   distinction is load-bearing for two-tier (node lb + cluster lb) deployments: 429 is
   4xx, so a saturated node is *not* ejected by the cluster tier, while a node whose
   ranks are all down 503s and is. Do not collapse these into one status.
+- **`--log-to` captures by tee, never by buffering.** Request bodies are tee'd on the
+  way to the backend and response bytes on the way to the client, so streaming (SSE
+  flushing via `ResponseController` → the wrapper's `Unwrap`) is untouched; the JSONL
+  line is written when the response completes. Capture is capped at 1 GiB per body
+  (DoS guard only, mirrors `affinityMaxBody`) with `*_truncated` flags. Selection
+  failures (429/503) are logged with no `backend`; `/health` is never logged. The
+  capture buffer is mutex-guarded because the transport's write loop can still be
+  draining the request body when the pair is finalized.
 - **Two-tier stacking is supported and documented in the README**: align caps as
   cluster `--max-conns` = node `--max-conns` × ranks. A single rank 5xx propagating up
   and ejecting the whole node at the cluster tier is intended (expert parallelism

@@ -24,7 +24,7 @@ func main() {
 		Name:      "lb",
 		Usage:     "A simple load balancer",
 		Version:   version,
-		UsageText: "lb --backends <url1> [--backends <url2> ...] [--port <port>] [--timeout <duration>] [--health-check-interval <duration>] [--routing <mode>] [--max-conns <n>] [--affinity-ttl <duration>] [--verbose]",
+		UsageText: "lb --backends <url1> [--backends <url2> ...] [--port <port>] [--timeout <duration>] [--health-check-interval <duration>] [--routing <mode>] [--max-conns <n>] [--affinity-ttl <duration>] [--log-to <path>] [--verbose]",
 		Flags: []cli.Flag{
 			&cli.StringSliceFlag{
 				Name:     "backends",
@@ -61,6 +61,10 @@ func main() {
 				Usage: "Cache-aware routing: sliding lifetime of prefix-affinity entries",
 				Value: time.Hour,
 			},
+			&cli.StringFlag{
+				Name:  "log-to",
+				Usage: "Append each request/response pair as one JSON object per line (JSONL) to this file",
+			},
 			&cli.BoolFlag{
 				Name:  "verbose",
 				Usage: "Enable verbose logging",
@@ -78,6 +82,7 @@ func main() {
 			routing := cmd.String("routing")
 			maxConns := cmd.Int("max-conns")
 			affinityTTL := cmd.Duration("affinity-ttl")
+			logTo := cmd.String("log-to")
 			verbose := cmd.Bool("verbose")
 
 			// Add http:// to backends without a scheme
@@ -128,6 +133,9 @@ func main() {
 			if routing == "cache-aware" {
 				log.Printf("Affinity TTL: %v", affinityTTL)
 			}
+			if logTo != "" {
+				log.Printf("Request log: %s", logTo)
+			}
 			log.Printf("Verbose: %v", verbose)
 			log.Printf("Backends:")
 			for _, backend := range backends {
@@ -143,6 +151,14 @@ func main() {
 				pool.EnableCacheAware(affinityTTL, int(maxConns))
 			} else if maxConns > 0 {
 				pool.SetMaxConns(int(maxConns))
+			}
+			if logTo != "" {
+				reqLog, err := lib.NewRequestLog(logTo)
+				if err != nil {
+					log.Fatalf("Failed to open --log-to file: %v", err)
+				}
+				defer reqLog.Close()
+				pool.SetRequestLog(reqLog)
 			}
 
 			// Create context for graceful shutdown

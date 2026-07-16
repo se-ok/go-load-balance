@@ -16,9 +16,9 @@ Prebuilt binaries for Linux and macOS (amd64/arm64) are on the
 [releases page](https://github.com/se-ok/go-load-balance/releases):
 
 ```bash
-# Example: v0.2.0 on Linux amd64 — installs to ~/.local/bin (make sure it is on your $PATH)
+# Example: v0.2.1 on Linux amd64 — installs to ~/.local/bin (make sure it is on your $PATH)
 mkdir -p ~/.local/bin
-curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.2.0/lb_0.2.0_linux_amd64.tar.gz | tar -xz -C ~/.local/bin lb
+curl -fsSL https://github.com/se-ok/go-load-balance/releases/download/v0.2.1/lb_0.2.1_linux_amd64.tar.gz | tar -xz -C ~/.local/bin lb
 lb --help
 ```
 
@@ -76,6 +76,7 @@ lb \
 | `--routing` | Routing mode: `least-conn` or `cache-aware` | `least-conn` |
 | `--max-conns` | Hard limit on concurrent requests per backend, `0` = unlimited (required for `cache-aware`) | `0` |
 | `--affinity-ttl` | Cache-aware: sliding lifetime of prefix-affinity entries | `1h` |
+| `--log-to` | Append each request/response pair as one JSON object per line (JSONL) to this file | off |
 | `--verbose` | Enable verbose logging with per-backend details | `false` |
 
 ## How It Works
@@ -149,6 +150,26 @@ Rules of thumb:
 - Use a short node-level `--health-check-interval` (the 5s minimum): the cluster's
   probe through a node instance only proves one rank is alive, so fast rank-level
   probing at the node tier is what actually detects partial failures.
+
+## Request/Response Logging
+
+`--log-to <path>` appends every request handled by the pool to a JSON Lines file,
+one object per completed request pairing the request body with the response body:
+
+```json
+{"time":"2026-07-16T10:34:10.92Z","duration_ms":1523,"method":"POST","path":"/v1/chat/completions","status":200,"backend":"http://127.0.0.1:8000","request":{"model":"m","messages":[...]},"response":"data: {...}\n\ndata: [DONE]\n\n"}
+```
+
+- `request`/`response` hold the raw body when it is valid JSON, the body as a
+  string otherwise (e.g. SSE streams), or `null` when empty.
+- Bodies are tee'd as they stream — proxying stays unbuffered and SSE flushing is
+  unaffected; the line is written when the response completes.
+- Selection failures are logged too (429/503 with no `backend`); filter with e.g.
+  `jq 'select(.status == 200)'`. The `/health` endpoint is not logged.
+- The file is opened in append mode, created with permissions `0640` (logged
+  conversations are sensitive; pre-create the file if you need different
+  permissions). Capture is capped at 1 GiB per body as a DoS guard; a cut-off
+  body is flagged `request_truncated`/`response_truncated`.
 
 ## Architecture
 
