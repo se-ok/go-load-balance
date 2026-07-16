@@ -112,8 +112,17 @@ streaming requests are the norm — the default request timeout is 4 hours.
 
 ## Releasing
 
-Releases are published to GitHub with goreleaser, run locally (no CI). From a
-clean, up-to-date `main`:
+Releases are published to GitHub with goreleaser, run locally.
+
+**Never push to `main` directly — even when admin rights would bypass the
+protection rule.** `main` requires a PR so the CI status checks (build/test,
+gosec, govulncheck) gate every release. The flow:
+
+1. Commit the release changes (including the README install-example bump) to a
+   feature branch and push that branch.
+2. Let the user create the PR, wait for CI to finish its status checks, and
+   merge manually.
+3. Only then, from the clean, up-to-date merged `main`:
 
 ```bash
 git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
